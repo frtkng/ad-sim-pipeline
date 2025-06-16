@@ -1,0 +1,65 @@
+name: E2E-AI CICT Pipeline
+on:
+  workflow_dispatch:
+    inputs:
+      retrain:
+        description: 'true for retraining'
+        required: false
+        default: 'false'
+      retry_count:
+        description: 'current retry count'
+        required: false
+        default: '0'
+  push:
+    branches: [ main ]
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: us-west-2
+      - name: Train or Retrain Model
+        run: |
+          bash scripts/train.sh ${{ github.run_id }} ${{ github.event.inputs.retrain }}
+  simulate:
+    needs: train
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: us-west-2
+      - run: |
+          aws eks update-kubeconfig --name ${{ secrets.CLUSTER_NAME }} --region us-west-2
+      - run: |
+          bash scripts/simulate.sh ${{ github.run_id }}
+      - run: |
+          aws s3 sync /tmp/carla_results/${{ github.run_id }} s3://${{ secrets.MODEL_BUCKET }}/logs/${{ github.run_id }}
+  evaluate_retrain:
+    needs: simulate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE }}
+          aws-region: us-west-2
+      - name: Evaluate and Extract NG
+        run: |
+          NG=$(bash scripts/evaluate.sh ${{ github.run_id }})
+          echo "NG=$NG" >> $GITHUB_ENV
+      - name: Conditional Retrain
+        if: ${{ env.NG != '0' && github.event.inputs.retry_count != '3' }}
+        run: |
+          NEW_COUNT=$(( github.event.inputs.retry_count + 1 ))
+          gh workflow dispatch --workflow ci-pipeline.yaml --ref main \
+            -f retrain=true -f retry_count="$NEW_COUNT"
+      - name: End Notification
+        if: ${{ env.NG == '0' || github.event.inputs.retry_count == '3' }}
+        run: |
+          echo "Pipeline completed. NG=$NG retries=${{ github.event.inputs.retry_count }}"
