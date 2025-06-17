@@ -1,3 +1,13 @@
+############################################
+# variables.tf で定義している想定の変数
+############################################
+# variable "env"        {}   # dev / prod など
+# variable "aws_region" {}   # ap-northeast-1 など
+# variable "ec2_key"    {}   # ssh キーペア名
+
+############################################
+# main.tf
+############################################
 locals {
   vpc_id  = module.vpc.vpc_id
   subnets = module.vpc.private_subnets
@@ -7,59 +17,69 @@ provider "aws" {
   region = var.aws_region
 }
 
+#########################
+# S3 (モデル保管用)
+#########################
 resource "aws_s3_bucket" "model_store" {
   bucket = "e2e-ai-model-store-${var.env}"
-  acl    = "private"
 
   tags = {
     Project = "E2E AI CICT"
   }
 }
 
+#########################
+# EKS クラスタ
+#########################
 module "eks" {
-  source          = "terraform-aws-modules/eks/aws"
-  version = "19.21.0" # 安定しているバージョン
+  source  = "terraform-aws-modules/eks/aws"
+  version = "19.21.0"
 
   cluster_name    = "e2e-ai-cluster-${var.env}"
-  cluster_version = "1.33" 
-  subnet_ids      = local.subnets
-  vpc_id  = local.vpc_id
-  # Fargate プロファイル
-  fargate_profiles = {
-    # デフォルト namespace + role=cpu の Pod を Fargate で動かす
-    cpu = {
-      name      = "cpu-fargate"
-      selectors = [{
-        namespace = "default"
-        labels    = { role = "cpu" }
-      }]
-    }
-    # もし coredns や kube-proxy を Fargate に載せたいなら、
-    # kube-system 用のプロファイルを追加
-    system = {
-      name      = "kube-system"
-      selectors = [{
-        namespace = "kube-system"
-      }]
-    }
-  }
+  cluster_version = "1.33"
 
-  # GPU 用だけ EC2 ノードグループ
+  vpc_id     = local.vpc_id
+  subnet_ids = local.subnets
+
+  #################################
+  # EKS マネージド Node Groups
+  #################################
   eks_managed_node_groups = {
+    # ── CPU ノード（システム & 軽量ジョブ）
+    cpu = {
+      instance_types = ["t3.medium"]   # 1 vCPU / 4 GiB
+      min_size       = 1
+      max_size       = 1
+      desired_size   = 1
+
+      labels = {
+        role = "cpu"
+      }
+      # (必要なら) SSH キー
+      key_name = var.ec2_key
+    }
+
+    # ── GPU ノード（CARLA 専用）
     gpu = {
-      instance_types   = ["g4dn.xlarge"]
-      desired_capacity = 1
-      max_capacity     = 1
+      instance_types = ["g5.xlarge"]   # A10G ×1 / 4 vCPU
+      min_size       = 1
+      max_size       = 1
+      desired_size   = 1
+
+      labels = {
+        role = "gpu"
+      }
       taints = [{
         key    = "node.kubernetes.io/gpu"
         value  = "true"
         effect = "NO_SCHEDULE"
       }]
-      labels = { role = "gpu" }
+
       key_name = var.ec2_key
     }
   }
-    tags = {
+
+  tags = {
     Project = "E2E AI CICT"
   }
 }
