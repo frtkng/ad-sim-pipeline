@@ -1,5 +1,6 @@
-variable "aws_region" { default = "us-west-2" }
+variable "aws_region" { default = "ap-northeast-1" }
 variable "env"        { default = "dev" }
-variable "vpc_id"     { }
-variable "subnets"    { type = list(string) }
-variable "ec2_key"    { }
+variable "ec2_key" {
+  description = "Name of the EC2 key pair to use for the EKS nodes"
+  type        = string
+}
