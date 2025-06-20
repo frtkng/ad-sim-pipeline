@@ -17,6 +17,9 @@ provider "aws" {
   region = var.aws_region
 }
 
+# 現在の AWS アカウント番号を取得
+data "aws_caller_identity" "current" {}
+
 #########################
 # S3 (モデル保管用)
 #########################
@@ -41,13 +44,19 @@ module "eks" {
   vpc_id     = local.vpc_id
   subnet_ids = local.subnets
 
+  ################################
+  # RBAC（aws-auth）を Terraform で管理
+  ################################
+  manage_aws_auth_configmap = false
+
   #################################
   # EKS マネージド Node Groups
   #################################
   eks_managed_node_groups = {
     # ── CPU ノード（システム & 軽量ジョブ）
     cpu = {
-      instance_types = ["t3.medium"]   # 1 vCPU / 4 GiB
+      node_group_name = "cpu" 
+      instance_types = ["t3.small"]   # 1 vCPU / 4 GiB
       min_size       = 1
       max_size       = 1
       desired_size   = 1
@@ -61,7 +70,9 @@ module "eks" {
 
     # ── GPU ノード（CARLA 専用）
     gpu = {
-      instance_types = ["g5.xlarge"]   # A10G ×1 / 4 vCPU
+      node_group_name = "gpu"
+      subnet_ids     = [local.subnets[0]] 
+      instance_types = ["g4dn.xlarge"]   # A10G ×1 / 4 vCPU
       min_size       = 1
       max_size       = 1
       desired_size   = 1
