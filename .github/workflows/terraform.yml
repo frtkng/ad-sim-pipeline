@@ -28,6 +28,6 @@ jobs:
           aws-region: ap-northeast-1
 
       - name: Run infra setup script
-        env:
-         AWS_PROFILE: ""
-        run: bash scripts/setup_infra.sh
+        run: |
+           unset AWS_PROFILE
+           bash scripts/setup_infra.sh
