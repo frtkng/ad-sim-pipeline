@@ -1,33 +1,31 @@
-name: Terraform
+name: 🛠 Infrastructure Setup
 
 on:
-  push:
-    # infra フォルダ配下の tf/vars が変更されたときのみ
-    paths:
-      - 'infra/**.tf'
-      - 'infra/**.tfvars'
+  workflow_dispatch:    # ← 手動トリガのみ
+
+permissions:
+  id-token: write       # OIDC による AssumeRole 用
+  contents: read        # コード checkout 用
 
 jobs:
-  terraform:
+  setup-infra:
+    name: Setup Infra
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
 
-      - name: Configure AWS (OIDC)
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v3
+
+      - name: Install Terraform CLI
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: '1.5.5'
+
+      - name: Configure AWS Credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v2
         with:
           role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
           aws-region: ap-northeast-1
 
-      - name: Terraform Init
-        working-directory: infra
-        run: terraform init
-
-      - name: Terraform Plan
-        working-directory: infra
-        run: terraform plan -out=tfplan
-
-      - name: Terraform Apply
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        working-directory: infra
-        run: terraform apply -auto-approve tfplan
+      - name: Run infra setup script
+        run: bash scripts/setup_infra.sh
