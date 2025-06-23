@@ -2,9 +2,9 @@
 set -euo pipefail
 
 # デフォルトのAWSプロファイル（必要に応じて上書き）
-AWS_PROFILE="${1:-default}"
-export AWS_PROFILE
-echo "[INFO] Using AWS_PROFILE: $AWS_PROFILE"
+#AWS_PROFILE="${1:-default}"
+#export AWS_PROFILE
+#echo "[INFO] Using AWS_PROFILE: $AWS_PROFILE"
 
 # SSHキー名と保存先ディレクトリ
 KEY_NAME="e2e-ai-dev-key"
