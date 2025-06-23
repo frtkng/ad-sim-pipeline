@@ -28,6 +28,8 @@ jobs:
           aws-region: ap-northeast-1
 
       - name: Run infra setup script
+        env:
+           TF_VAR_ec2_key: "e2e-ai-dev-key"
         run: |
            unset AWS_PROFILE
            bash scripts/setup_infra.sh
