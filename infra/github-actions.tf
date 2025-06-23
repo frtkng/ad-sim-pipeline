@@ -62,3 +62,29 @@ resource "aws_iam_role_policy" "ci_ec2_keypair" {
   role   = aws_iam_role.github_actions.name
   policy = data.aws_iam_policy_document.ci_ec2_keypair.json
 }
+
+# ──────────── Terraform Lock 用 DynamoDB 操作権限 ────────────
+data "aws_iam_policy_document" "ci_dynamodb_lock" {
+  statement {
+    sid     = "AllowDynamoDBLockTableAccess"
+    effect  = "Allow"
+    actions = [
+      "dynamodb:DescribeTable",
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+      "dynamodb:BatchGetItem",
+      "dynamodb:BatchWriteItem",
+    ]
+    resources = [
+      "arn:aws:dynamodb:${var.aws_region}:${var.aws_account_id}:table/terraform-locks",
+    ]
+  }
+}
+
+resource "aws_iam_role_policy" "ci_dynamodb_lock" {
+  name   = "ci-dynamodb-lock-policy"
+  role   = aws_iam_role.github_actions.name
+  policy = data.aws_iam_policy_document.ci_dynamodb_lock.json
+}
