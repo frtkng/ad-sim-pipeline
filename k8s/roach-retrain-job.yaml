@@ -1,0 +1,26 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: roach-retrain
+spec:
+  backoffLimit: 0
+  template:
+    spec:
+      nodeSelector:
+        role: gpu
+      tolerations:
+        - key: node.kubernetes.io/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+      - name: retrain
+        image: REPLACE_IMAGE
+        env:
+          - name: RETRAIN
+            value: "true"
+          - name: MODEL_BUCKET
+            value: "${MODEL_BUCKET}"
+        command: ["bash","-c"]
+        args:
+          - python retrain.py --output-s3 s3://${MODEL_BUCKET}/models
+      restartPolicy: Never

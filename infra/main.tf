@@ -36,7 +36,7 @@ resource "aws_s3_bucket" "model_store" {
 #########################
 module "eks" {
   source  = "terraform-aws-modules/eks/aws"
-  version = "19.21.0"
+  version = "20.13.0"
 
   cluster_name    = "e2e-ai-cluster-${var.env}"
   cluster_version = "1.33"
@@ -47,7 +47,7 @@ module "eks" {
   ################################
   # RBAC（aws-auth）を Terraform で管理
   ################################
-  manage_aws_auth_configmap = false
+  # manage_aws_auth_configmap = false # v20では削除
 
   #################################
   # EKS マネージド Node Groups
@@ -57,6 +57,7 @@ module "eks" {
     cpu = {
       node_group_name = "cpu" 
       instance_types = ["t3.small"]   # 1 vCPU / 4 GiB
+      ami_type       = "AL2023_x86_64_STANDARD"
       min_size       = 1
       max_size       = 1
       desired_size   = 1
@@ -73,6 +74,7 @@ module "eks" {
       node_group_name = "gpu"
       subnet_ids     = [local.subnets[0]] 
       instance_types = ["g4dn.xlarge"]   # A10G ×1 / 4 vCPU
+      ami_type       = "AL2023_x86_64_NVIDIA"
       min_size       = 1
       max_size       = 1
       desired_size   = 1

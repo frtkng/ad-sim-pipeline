@@ -1,65 +1,85 @@
-name: E2E-AI CICT Pipeline
+name: CICT–Pipeline
+
 on:
-  workflow_dispatch:
-    inputs:
-      retrain:
-        description: 'true for retraining'
-        required: false
-        default: 'false'
-      retry_count:
-        description: 'current retry count'
-        required: false
-        default: '0'
   push:
     branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  id-token: write          # OIDC トークン取得
+  contents: read
 
 jobs:
-  train:
+  build-and-push:
+    name: Build & Push Image
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v3
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password \
+            | docker login --username AWS --password-stdin \
+                ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+
+      - name: Build & Push
+        run: |
+          TAG=roach-${{ github.sha }}
+          docker build \
+            -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:$TAG \
+            -f docker/roach/Dockerfile .
+          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:$TAG
+
+      # もし infra も同時に管理するなら…
+      - name: Terraform Apply
+        working-directory: infra
+        run: |
+          terraform init
+          terraform apply -auto-approve
+
+  deploy-and-run:
+    name: Deploy & Run Simulation
+    needs: build-and-push
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - uses: aws-actions/configure-aws-credentials@v2
+
+      - name: Configure AWS Credentials via OIDC
+        uses: aws-actions/configure-aws-credentials@v2
         with:
-          role-to-assume: ${{ secrets.AWS_ROLE }}
-          aws-region: ap-northeast-1
-      - name: Train or Retrain Model
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Setup kubectl
         run: |
-          bash scripts/train.sh ${{ github.run_id }} ${{ github.event.inputs.retrain }}
-  simulate:
-    needs: train
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE }}
-          aws-region: ap-northeast-1
-      - run: |
-          aws eks update-kubeconfig --name ${{ secrets.CLUSTER_NAME }} --region ap-northeast-1
-      - run: |
-          bash scripts/simulate.sh ${{ github.run_id }}
-      - run: |
-          aws s3 sync /tmp/carla_results/${{ github.run_id }} s3://${{ secrets.MODEL_BUCKET }}/logs/${{ github.run_id }}
-  evaluate_retrain:
-    needs: simulate
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v3
-      - uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE }}
-          aws-region: ap-northeast-1
-      - name: Evaluate and Extract NG
+          aws eks update-kubeconfig \
+            --name ${{ secrets.CLUSTER_NAME }}
+
+      - name: Deploy Update to EKS
         run: |
-          NG=$(bash scripts/evaluate.sh ${{ github.run_id }})
-          echo "NG=$NG" >> $GITHUB_ENV
-      - name: Conditional Retrain
-        if: ${{ env.NG != '0' && github.event.inputs.retry_count != '3' }}
+          TAG=roach-${{ github.sha }}
+          # Deployment のイメージを新しいものに書き換え
+          kubectl set image deployment/roach-deployment \
+            roach=$${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:$TAG \
+            --namespace default
+
+      - name: Run Retraining Job
         run: |
-          NEW_COUNT=$(( github.event.inputs.retry_count + 1 ))
-          gh workflow dispatch --workflow ci-pipeline.yaml --ref main \
-            -f retrain=true -f retry_count="$NEW_COUNT"
-      - name: End Notification
-        if: ${{ env.NG == '0' || github.event.inputs.retry_count == '3' }}
+          # Job マニフェストにイメージ & retrain フラグを埋め込んで実行
+          envsubst < k8s/roach-retrain-job.yaml | kubectl apply -f -
+
+      - name: Wait for Job Completion
         run: |
-          echo "Pipeline completed. NG=$NG retries=${{ github.event.inputs.retry_count }}"
+          kubectl wait --for=condition=complete job/roach-retrain \
+            --timeout=600s
+
+      - name: Fetch Logs
+        run: |
+          kubectl logs job/roach-retrain

@@ -1,0 +1,29 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: roach-deployment
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: roach
+  template:
+    metadata:
+      labels:
+        app: roach
+    spec:
+      nodeSelector:
+        role: gpu
+      tolerations:
+        - key: node.kubernetes.io/gpu
+          operator: Exists
+          effect: NoSchedule
+      containers:
+      - name: roach
+        image: REPLACE_IMAGE
+        resources:
+          limits:
+            nvidia.com/gpu: 1
+        command: ["bash","-c"]
+        args:
+          - python run_roach.py

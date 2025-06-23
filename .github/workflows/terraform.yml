@@ -1,0 +1,33 @@
+name: Terraform
+
+on:
+  push:
+    # infra フォルダ配下の tf/vars が変更されたときのみ
+    paths:
+      - 'infra/**.tf'
+      - 'infra/**.tfvars'
+
+jobs:
+  terraform:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+
+      - name: Configure AWS (OIDC)
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ap-northeast-1
+
+      - name: Terraform Init
+        working-directory: infra
+        run: terraform init
+
+      - name: Terraform Plan
+        working-directory: infra
+        run: terraform plan -out=tfplan
+
+      - name: Terraform Apply
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        working-directory: infra
+        run: terraform apply -auto-approve tfplan
