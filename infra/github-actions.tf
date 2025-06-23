@@ -42,3 +42,23 @@ resource "aws_iam_role_policy_attachment" "github_actions_managed" {
   role       = aws_iam_role.github_actions.name
   policy_arn = each.value
 }
+
+# 4. EC2 キーペア操作を許可するインラインポリシー
+data "aws_iam_policy_document" "ci_ec2_keypair" {
+  statement {
+    sid     = "AllowCreateAndDeleteKeyPair"
+    effect  = "Allow"
+    actions = [
+      "ec2:CreateKeyPair",
+      "ec2:DeleteKeyPair",
+      "ec2:DescribeKeyPairs",
+    ]
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "ci_ec2_keypair" {
+  name   = "ci-ec2-keypair-policy"
+  role   = aws_iam_role.github_actions.name
+  policy = data.aws_iam_policy_document.ci_ec2_keypair.json
+}

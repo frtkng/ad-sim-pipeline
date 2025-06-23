@@ -35,9 +35,9 @@ else
   echo "[INFO] EC2 key pair '$KEY_NAME' already exists, skipping."
 fi
 
-# スクリプトの位置から terraform ディレクトリへ移動
+# スクリプトの位置から infra ディレクトリへ移動
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TERRAFORM_DIR="$SCRIPT_DIR/../terraform"
+TERRAFORM_DIR="$SCRIPT_DIR/../infra"
 cd "$TERRAFORM_DIR"
 
 # ────────────────────────────────────────────────
