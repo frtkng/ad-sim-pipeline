@@ -17,33 +17,46 @@ jobs:
 # ───────────────────────── Build & Push ─────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
-
     steps:
-      - uses: actions/checkout@v4
+    # 0) ディスクを 20 GB 以上空ける ──────★
+    - name: Free up runner disk
+      run: |
+        sudo rm -rf /usr/local/lib/android      # ~6 GB
+        sudo rm -rf /opt/ghc                    # ~3 GB
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"     # ~7 GB (toolcache)
+        df -h
 
-      # Buildx (BuildKit) を有効化
-      - uses: docker/setup-buildx-action@v3
+    # 1) Repo
+    - uses: actions/checkout@v4
 
-      - uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region:     ${{ secrets.AWS_REGION }}
+    # 2) Buildx
+    - uses: docker/setup-buildx-action@v3
 
-      - name: Login to ECR
-        run: |
-          aws ecr get-login-password \
-            | docker login --username AWS --password-stdin \
-              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+    # 3) AWS creds (OIDC)
+    - uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region:     ${{ env.AWS_REGION }}
 
-      - name: Build & Push (stream)
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          file:   docker/roach/Dockerfile
-          push:   true
-          tags:   ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:roach-${{ github.sha }}
-          # 途中レイヤを Runner に残さない
-          outputs: type=registry
+    # 4) ECR login
+    - name: Login to ECR
+      run: |
+        aws ecr get-login-password |
+        docker login --username AWS --password-stdin \
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+
+    # 5) Build+Push  (レイヤは即 ECR へ / ローカルに残さない)
+    - uses: docker/build-push-action@v5
+      with:
+        context: .
+        file:    docker/roach/Dockerfile
+        push:    true
+        tags:    ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:roach-${{ github.sha }}
+        # 完全にストリーム転送
+        outputs: type=registry
+        # 追加で安全策
+        sbom:      false
+        provenance: false
 
 # ───────────────────── Deploy & Run on EKS ──────────────────────
   deploy-and-run:
