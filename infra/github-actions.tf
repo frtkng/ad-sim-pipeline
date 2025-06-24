@@ -109,6 +109,8 @@ data "aws_iam_policy_document" "ci_terraform_read" {
       # EKS
       "eks:DescribeCluster",
       "eks:DescribeNodegroup",
+      "eks:ListNodegroups",
+      
 
       # EC2 / VPC
       "ec2:DescribeVpcs",
