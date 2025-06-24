@@ -88,3 +88,48 @@ resource "aws_iam_role_policy" "ci_dynamodb_lock" {
   role   = aws_iam_role.github_actions.name
   policy = data.aws_iam_policy_document.ci_dynamodb_lock.json
 }
+
+// 5) Terraform data/read permissions for EKS/VPC modules (expanded)
+data "aws_iam_policy_document" "ci_terraform_read" {
+  statement {
+    sid     = "AllowTerraformDataReads"
+    effect  = "Allow"
+
+    actions = [
+      # IAM / OIDC
+      "iam:GetOpenIDConnectProvider",
+      "iam:ListOpenIDConnectProviders",
+      "iam:GetRole",
+      "iam:ListRolePolicies",
+      "iam:GetRolePolicy",
+
+      # EKS
+      "eks:DescribeCluster",
+
+      # EC2 / VPC
+      "ec2:DescribeVpcs",
+      "ec2:DescribeVpcAttribute",
+      "ec2:DescribeSubnets",
+      "ec2:DescribeSecurityGroups",
+      "ec2:DescribeSecurityGroupRules",
+      "ec2:DescribeRouteTables",
+      "ec2:DescribeNetworkAcls",
+      "ec2:DescribeAddresses",
+      "ec2:DescribeAddressesAttribute",
+
+      # CloudWatch Logs
+      "logs:DescribeLogGroups",
+      "logs:ListTagsForResource",
+      "logs:CreateLogGroup",
+    ]
+
+    # you can lock this down further to specific ARNs if you like
+    resources = ["*"]
+  }
+}
+
+resource "aws_iam_role_policy" "ci_terraform_read" {
+  name   = "ci-terraform-read-policy"
+  role   = aws_iam_role.github_actions.name
+  policy = data.aws_iam_policy_document.ci_terraform_read.json
+}
