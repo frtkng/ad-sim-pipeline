@@ -104,6 +104,7 @@ data "aws_iam_policy_document" "ci_terraform_read" {
       "iam:GetRolePolicy",
       "iam:ListAttachedRolePolicies",
       "iam:GetPolicy",
+      "iam:GetPolicyVersion",
 
       # EKS
       "eks:DescribeCluster",
@@ -121,6 +122,7 @@ data "aws_iam_policy_document" "ci_terraform_read" {
       "ec2:DescribeNatGateways",
       "ec2:DescribeTags",
       "ec2:DescribeLaunchTemplates",
+      "ec2:DescribeLaunchTemplateVersions",
 
       # CloudWatch Logs
       "logs:DescribeLogGroups",
