@@ -17,34 +17,33 @@ jobs:
 # ───────────────────────── Build & Push ─────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
-    outputs:
-      tag: ${{ steps.meta.outputs.tag }}    # 後工程へ渡す
 
     steps:
-    - name: Checkout
-      uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials (OIDC)
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region:     ${{ env.AWS_REGION }}
+      # Buildx (BuildKit) を有効化
+      - uses: docker/setup-buildx-action@v3
 
-    - name: Login to ECR
-      run: |
-        aws ecr get-login-password --region "$AWS_REGION" \
-          | docker login --username AWS --password-stdin "$ECR_URI"
+      - uses: aws-actions/configure-aws-credentials@v2
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region:     ${{ secrets.AWS_REGION }}
 
-    - name: Set build tag
-      id: meta
-      run: |
-        echo "tag=roach-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-        echo "TAG=roach-${GITHUB_SHA}"  >> "$GITHUB_ENV"
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password \
+            | docker login --username AWS --password-stdin \
+              ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
 
-    - name: Build & Push image
-      run: |
-        docker build -t "$ECR_URI/$IMAGE_REPO:$TAG" -f docker/roach/Dockerfile .
-        docker push "$ECR_URI/$IMAGE_REPO:$TAG"
+      - name: Build & Push (stream)
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file:   docker/roach/Dockerfile
+          push:   true
+          tags:   ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:roach-${{ github.sha }}
+          # 途中レイヤを Runner に残さない
+          outputs: type=registry
 
 # ───────────────────── Deploy & Run on EKS ──────────────────────
   deploy-and-run:
