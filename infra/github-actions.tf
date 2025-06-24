@@ -151,3 +151,27 @@ resource "aws_iam_role_policy" "ci_terraform_read" {
   role   = aws_iam_role.github_actions.name
   policy = data.aws_iam_policy_document.ci_terraform_read.json
 }
+
+locals {
+  # EKS モジュールからクラスター名など取得
+  eks_cluster_name = module.eks.cluster_name
+}
+
+resource "kubernetes_config_map" "aws_auth" {
+  provider = kubernetes.eks  # ← module.eks が生成した provider alias を使う
+  metadata {
+    name      = "aws-auth"
+    namespace = "kube-system"
+  }
+
+  # 既存 mapRoles に GitHubActions ロールをプラス
+  data = {
+    mapRoles = yamlencode([
+      {
+        rolearn  = aws_iam_role.github_actions.arn
+        username = "github-actions"
+        groups   = ["system:masters"]   # 管理者権限
+      }
+    ])
+  }
+}

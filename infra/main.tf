@@ -17,6 +17,19 @@ provider "aws" {
   region = var.aws_region
 }
 
+provider "kubernetes" {
+  alias = "eks"
+
+  host                   = module.eks.cluster_endpoint
+  cluster_ca_certificate = base64decode(module.eks.cluster_certificate_authority_data)
+
+  exec {
+    api_version = "client.authentication.k8s.io/v1beta1"
+    command     = "aws"
+    args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
+  }
+}
+
 # 現在の AWS アカウント番号を取得
 data "aws_caller_identity" "current" {}
 
@@ -43,6 +56,11 @@ module "eks" {
 
   vpc_id     = local.vpc_id
   subnet_ids = local.subnets
+
+  # --- API エンドポイント公開設定 ------------------
+  cluster_endpoint_public_access         = true
+  cluster_endpoint_public_access_cidrs   = ["0.0.0.0/0"] # ← 会社 or 自宅の固定 IP があれば絞る
+  cluster_endpoint_private_access        = true          # 既定 true のままで OK
 
   ################################
   # RBAC（aws-auth）を Terraform で管理
