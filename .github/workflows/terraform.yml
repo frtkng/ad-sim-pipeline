@@ -1,4 +1,4 @@
-name: 🛠 Infrastructure Setup
+name: ☁ Infrastructure Setup
 
 on:
   workflow_dispatch:    # ← 手動トリガのみ

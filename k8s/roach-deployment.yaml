@@ -15,15 +15,16 @@ spec:
       nodeSelector:
         role: gpu
       tolerations:
-        - key: node.kubernetes.io/gpu
-          operator: Exists
-          effect: NoSchedule
+      - key: node.kubernetes.io/gpu
+        operator: Exists
+        effect: NoSchedule
       containers:
       - name: roach
-        image: REPLACE_IMAGE
+        image: ${IMAGE}            # envsubst で注入
+        imagePullPolicy: Always
         resources:
           limits:
-            nvidia.com/gpu: 1
+            nvidia.com/gpu: "1"
         command: ["bash","-c"]
         args:
-          - python run_roach.py
+        - python run_roach.py

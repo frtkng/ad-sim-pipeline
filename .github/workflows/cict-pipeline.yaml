@@ -1,85 +1,96 @@
-name: ♾️CICT–Pipeline
+name: ♾️ CICT Pipeline
 
 on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+  workflow_dispatch:        # 手動トリガのみ
 
 permissions:
-  id-token: write          # OIDC トークン取得
+  id-token: write           # OIDC トークン発行
   contents: read
 
+env:                        # 共通定数
+  AWS_REGION:   ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT:  ${{ secrets.AWS_ACCOUNT_ID }}
+  ECR_URI:      ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+  IMAGE_REPO:   e2e-ai-carla-dev            # ECR のリポジトリ名
+
 jobs:
+# ───────────────────────── Build & Push ─────────────────────────
   build-and-push:
-    name: Build & Push Image
     runs-on: ubuntu-latest
+    outputs:
+      tag: ${{ steps.meta.outputs.tag }}    # 後工程へ渡す
+
     steps:
-      - name: Checkout
-        uses: actions/checkout@v3
+    - name: Checkout
+      uses: actions/checkout@v3
 
-      - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+    - name: Configure AWS Credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region:     ${{ env.AWS_REGION }}
 
-      - name: Login to ECR
-        run: |
-          aws ecr get-login-password \
-            | docker login --username AWS --password-stdin \
-                ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+    - name: Login to ECR
+      run: |
+        aws ecr get-login-password --region "$AWS_REGION" \
+          | docker login --username AWS --password-stdin "$ECR_URI"
 
-      - name: Build & Push
-        run: |
-          TAG=roach-${{ github.sha }}
-          docker build \
-            -t ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:$TAG \
-            -f docker/roach/Dockerfile .
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:$TAG
+    - name: Set build tag
+      id: meta
+      run: |
+        echo "tag=roach-${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+        echo "TAG=roach-${GITHUB_SHA}"  >> "$GITHUB_ENV"
 
-      # もし infra も同時に管理するなら…
-      - name: Terraform Apply
-        working-directory: infra
-        run: |
-          terraform init
-          terraform apply -auto-approve
+    - name: Build & Push image
+      run: |
+        docker build -t "$ECR_URI/$IMAGE_REPO:$TAG" -f docker/roach/Dockerfile .
+        docker push "$ECR_URI/$IMAGE_REPO:$TAG"
 
+# ───────────────────── Deploy & Run on EKS ──────────────────────
   deploy-and-run:
-    name: Deploy & Run Simulation
-    needs: build-and-push
     runs-on: ubuntu-latest
+    needs: build-and-push
+    env:
+      TAG: ${{ needs.build-and-push.outputs.tag }}
+
     steps:
-      - uses: actions/checkout@v3
+    - uses: actions/checkout@v3
 
-      - name: Configure AWS Credentials via OIDC
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region: ${{ secrets.AWS_REGION }}
+    - name: Configure AWS Credentials (OIDC)
+      uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region:     ${{ env.AWS_REGION }}
 
-      - name: Setup kubectl
-        run: |
-          aws eks update-kubeconfig \
-            --name ${{ secrets.CLUSTER_NAME }}
+    - name: Setup kubectl for cluster
+      run: |
+        aws eks update-kubeconfig               \
+          --name   "${{ secrets.CLUSTER_NAME }}" \
+          --region "$AWS_REGION"                \
+          --alias  ci-cluster                   \
+          --role-arn "${{ secrets.AWS_ROLE_ARN }}"
 
-      - name: Deploy Update to EKS
-        run: |
-          TAG=roach-${{ github.sha }}
-          # Deployment のイメージを新しいものに書き換え
-          kubectl set image deployment/roach-deployment \
-            roach=$${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:$TAG \
-            --namespace default
+    # ---------- Deployment 更新 ----------
+    - name: Update roach Deployment image
+      run: |
+        kubectl set image deployment/roach-deployment \
+          roach="$ECR_URI/$IMAGE_REPO:$TAG" -n default
+        kubectl rollout status deployment/roach-deployment -n default
 
-      - name: Run Retraining Job
-        run: |
-          # Job マニフェストにイメージ & retrain フラグを埋め込んで実行
-          envsubst < k8s/roach-retrain-job.yaml | kubectl apply -f -
+    # ---------- 再学習ジョブ ----------
+    - name: Launch retrain Job
+      env:
+        IMAGE:        ${{ env.ECR_URI }}/${{ env.IMAGE_REPO }}:${{ env.TAG }}
+        MODEL_BUCKET: ${{ secrets.MODEL_BUCKET }}
+        JOB_NAME:     roach-retrain-${{ github.run_id }}
+      run: |
+        envsubst < k8s/roach-retrain-job.yaml | kubectl apply -f -
 
-      - name: Wait for Job Completion
-        run: |
-          kubectl wait --for=condition=complete job/roach-retrain \
-            --timeout=600s
+    - name: Wait for Job completion
+      run: |
+        kubectl wait --for=condition=complete "job/$JOB_NAME" \
+          --timeout=600s
 
-      - name: Fetch Logs
-        run: |
-          kubectl logs job/roach-retrain
+    - name: Fetch Job logs
+      run: |
+        kubectl logs "job/$JOB_NAME" --all-containers=true
