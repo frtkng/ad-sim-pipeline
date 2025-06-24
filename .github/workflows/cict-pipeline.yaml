@@ -49,13 +49,12 @@ jobs:
     - uses: docker/build-push-action@v5
       with:
         context: .
-        file:    docker/roach/Dockerfile
-        push:    true
-        tags:    ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO }}:roach-${{ github.sha }}
-        # 完全にストリーム転送
-        outputs: type=registry
-        # 追加で安全策
-        sbom:      false
+        file: docker/roach/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:roach-${{ github.sha }}
+        outputs: type=registry        # ← stream push
+        sbom: false
         provenance: false
 
 # ───────────────────── Deploy & Run on EKS ──────────────────────
