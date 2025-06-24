@@ -139,6 +139,7 @@ data "aws_iam_policy_document" "ci_terraform_read" {
       "kms:ListAliases",
       "kms:GetKeyRotationStatus",
       "kms:ListResourceTags", 
+      "kms:PutKeyPolicy",
     ]
     resources = ["*"]
   }
