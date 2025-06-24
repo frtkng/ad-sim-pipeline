@@ -73,6 +73,10 @@ jobs:
         role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
         aws-region:     ${{ env.AWS_REGION }}
 
+    - name: Clear AWS_ROLE_ARN for kubectl
+      run: |
+        unset AWS_ROLE_ARN
+
     - name: Setup kubectl for cluster
       run: |
         aws eks update-kubeconfig               \
