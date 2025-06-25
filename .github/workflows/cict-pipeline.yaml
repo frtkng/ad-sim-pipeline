@@ -3,51 +3,60 @@ name: ♾️ CICT Pipeline
 on:
   workflow_dispatch:        # 手動トリガのみ
 
-# GitHub → AWS OIDC で必要
 permissions:
-  id-token: write
+  id-token: write           # OIDC トークン発行
   contents: read
 
-env:                       # 共有環境変数（好みで）
-  AWS_REGION: ap-northeast-1
+env:                        # 共通定数
+  AWS_REGION:   ${{ secrets.AWS_REGION }}
+  AWS_ACCOUNT:  ${{ secrets.AWS_ACCOUNT_ID }}
+  ECR_URI:      ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
+  IMAGE_REPO:   e2e-ai-carla-dev            # ECR のリポジトリ名
 
 jobs:
-# ─────────────────────────────────────────────────────────────
-# 1) Build & push Roach コンテナを ECR に登録
-# ─────────────────────────────────────────────────────────────
+# ───────────────────────── Build & Push ─────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
-
-    outputs:               # 後段ジョブにイメージタグを渡す
-      image-tag: ${{ steps.meta.outputs.tag }}
-
     steps:
-      - uses: actions/checkout@v4
+    # 0) ディスクを 20 GB 以上空ける ──────★
+    - name: Free up runner disk
+      run: |
+        sudo rm -rf /usr/local/lib/android      # ~6 GB
+        sudo rm -rf /opt/ghc                    # ~3 GB
+        sudo rm -rf "$AGENT_TOOLSDIRECTORY"     # ~7 GB (toolcache)
+        df -h
 
-      # イメージタグを決定 (例: roach-{git-sha})
-      - id: meta
-        run: echo "tag=roach-${{ github.sha }}" >> "$GITHUB_OUTPUT"
+    # 1) Repo
+    - uses: actions/checkout@v4
 
-      # OIDC で github-actions-role に Assume
-      - uses: aws-actions/configure-aws-credentials@v4
-        with:
-          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-          aws-region:     ${{ env.AWS_REGION }}
+    # 2) Buildx
+    - uses: docker/setup-buildx-action@v3
 
-      # ECR ログイン（トークンを自動取得）
-      - uses: aws-actions/amazon-ecr-login@v2
+    # 3) AWS creds (OIDC)
+    - uses: aws-actions/configure-aws-credentials@v2
+      with:
+        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+        aws-region:     ${{ env.AWS_REGION }}
 
-      # BuildKit でビルド & プッシュ（容量節約オプション付き）
-      - uses: docker/build-push-action@v5
-        with:
-          context: .
-          file: docker/roach/Dockerfile
-          push: true
-          provenance: false      # SBOM/Provenance を切ってサイズ削減
-          sbom: false
-          tags: |
-            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:${{ steps.meta.outputs.tag }}
+    # 4) ECR login
+    - name: Login to ECR
+      run: |
+        aws ecr get-login-password |
+        docker login --username AWS --password-stdin \
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
 
+    # 5) Build+Push  (レイヤは即 ECR へ / ローカルに残さない)
+    - uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: docker/roach/Dockerfile
+        push: true
+        tags: |
+          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:roach-${{ github.sha }}
+        outputs: type=registry        # ← stream push
+        sbom: false
+        provenance: false
+        
 # ─────────────────────────────────────────────────────────────
 # 2) 新イメージを EKS へデプロイし、Retrain Job をキック
 # ─────────────────────────────────────────────────────────────
