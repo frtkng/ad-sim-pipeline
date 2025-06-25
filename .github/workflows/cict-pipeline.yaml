@@ -5,7 +5,7 @@ on:
 
 permissions:
   id-token: write             # OIDC トークン発行
-  contents:  read
+  contents: read
 
 env:                          # 共通定数
   AWS_REGION:   ${{ secrets.AWS_REGION }}
@@ -82,17 +82,20 @@ jobs:
         MODEL_BUCKET: ${{ secrets.MODEL_BUCKET }}
       run: |
         echo "Deploying image: $IMAGE"
-
-        # 2 重 AssumeRole を避けるため一旦環境変数を外す
+ 
+        # 二重 AssumeRole を避けるため一旦環境変数を外す
         unset AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME
 
-        # Deployment 更新
+        # Deployment を更新
         envsubst '$IMAGE' < k8s/roach-deployment.yaml | kubectl apply -f -
 
-        # Retrain Job 投入
+        # 旧 Job が残っていると apply に失敗するので事前に削除
+        kubectl delete job/roach-retrain --ignore-not-found
+
+        # Retrain Job を投入（manifest は固定 name になっている）
         envsubst '$IMAGE $MODEL_BUCKET' < k8s/roach-retrain-job.yaml | kubectl apply -f -
 
-        # Job 完了待ち（15 分）
+        # 完了待ち（15 分）
         kubectl wait --for=condition=complete job/roach-retrain --timeout=900s
 
         # ログ取得
