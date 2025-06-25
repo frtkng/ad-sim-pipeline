@@ -3,109 +3,95 @@ name: ♾️ CICT Pipeline
 on:
   workflow_dispatch:        # 手動トリガのみ
 
+# GitHub → AWS OIDC で必要
 permissions:
-  id-token: write           # OIDC トークン発行
+  id-token: write
   contents: read
 
-env:                        # 共通定数
-  AWS_REGION:   ${{ secrets.AWS_REGION }}
-  AWS_ACCOUNT:  ${{ secrets.AWS_ACCOUNT_ID }}
-  ECR_URI:      ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ secrets.AWS_REGION }}.amazonaws.com
-  IMAGE_REPO:   e2e-ai-carla-dev            # ECR のリポジトリ名
+env:                       # 共有環境変数（好みで）
+  AWS_REGION: ap-northeast-1
 
 jobs:
-# ───────────────────────── Build & Push ─────────────────────────
+# ─────────────────────────────────────────────────────────────
+# 1) Build & push Roach コンテナを ECR に登録
+# ─────────────────────────────────────────────────────────────
   build-and-push:
     runs-on: ubuntu-latest
+
+    outputs:               # 後段ジョブにイメージタグを渡す
+      image-tag: ${{ steps.meta.outputs.tag }}
+
     steps:
-    # 0) ディスクを 20 GB 以上空ける ──────★
-    - name: Free up runner disk
-      run: |
-        sudo rm -rf /usr/local/lib/android      # ~6 GB
-        sudo rm -rf /opt/ghc                    # ~3 GB
-        sudo rm -rf "$AGENT_TOOLSDIRECTORY"     # ~7 GB (toolcache)
-        df -h
+      - uses: actions/checkout@v4
 
-    # 1) Repo
-    - uses: actions/checkout@v4
+      # イメージタグを決定 (例: roach-{git-sha})
+      - id: meta
+        run: echo "tag=roach-${{ github.sha }}" >> "$GITHUB_OUTPUT"
 
-    # 2) Buildx
-    - uses: docker/setup-buildx-action@v3
+      # OIDC で github-actions-role に Assume
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region:     ${{ env.AWS_REGION }}
 
-    # 3) AWS creds (OIDC)
-    - uses: aws-actions/configure-aws-credentials@v2
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region:     ${{ env.AWS_REGION }}
+      # ECR ログイン（トークンを自動取得）
+      - uses: aws-actions/amazon-ecr-login@v2
 
-    # 4) ECR login
-    - name: Login to ECR
-      run: |
-        aws ecr get-login-password |
-        docker login --username AWS --password-stdin \
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+      # BuildKit でビルド & プッシュ（容量節約オプション付き）
+      - uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: docker/roach/Dockerfile
+          push: true
+          provenance: false      # SBOM/Provenance を切ってサイズ削減
+          sbom: false
+          tags: |
+            ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:${{ steps.meta.outputs.tag }}
 
-    # 5) Build+Push  (レイヤは即 ECR へ / ローカルに残さない)
-    - uses: docker/build-push-action@v5
-      with:
-        context: .
-        file: docker/roach/Dockerfile
-        push: true
-        tags: |
-          ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/e2e-ai-carla-dev:roach-${{ github.sha }}
-        outputs: type=registry        # ← stream push
-        sbom: false
-        provenance: false
-
-# ───────────────────── Deploy & Run on EKS ──────────────────────
+# ─────────────────────────────────────────────────────────────
+# 2) 新イメージを EKS へデプロイし、Retrain Job をキック
+# ─────────────────────────────────────────────────────────────
   deploy-and-run:
-    runs-on: ubuntu-latest
     needs: build-and-push
-    env:
-      TAG: ${{ needs.build-and-push.outputs.tag }}
+    runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
 
-    - name: Configure AWS Credentials (OIDC)
-      uses: aws-actions/configure-aws-credentials@v2
-      with:
-        role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
-        aws-region:     ${{ env.AWS_REGION }}
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region:     ${{ env.AWS_REGION }}
 
-    - name: Clear AWS_ROLE_ARN for kubectl
-      run: |
-        unset AWS_ROLE_ARN
+      # kubeconfig を生成（github-actions-role は aws-auth に system:masters 登録済み）
+      - name: Set up kubeconfig
+        run: |
+          aws eks update-kubeconfig \
+            --name    ${{ secrets.CLUSTER_NAME }} \
+            --region  ${{ env.AWS_REGION }}
 
-    - name: Setup kubectl for cluster
-      run: |
-        aws eks update-kubeconfig               \
-          --name   "${{ secrets.CLUSTER_NAME }}" \
-          --region "$AWS_REGION"                \
-          --alias  ci-cluster                   \
-          --role-arn "${{ secrets.AWS_ROLE_ARN }}"
+      # ----------- ここから kubectl 操作 -------------
+      - name: Deploy & retrain
+        env:
+          ECR_URI:     ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          TAG:         ${{ needs.build-and-push.outputs.image-tag }}
+          MODEL_BUCKET:${{ secrets.MODEL_BUCKET }}
+        run: |
+          IMAGE="$ECR_URI/e2e-ai-carla-dev:$TAG"
+          export IMAGE MODEL_BUCKET
 
-    # ---------- Deployment 更新 ----------
-    - name: Update roach Deployment image
-      run: |
-        kubectl set image deployment/roach-deployment \
-          roach="$ECR_URI/$IMAGE_REPO:$TAG" -n default
-        kubectl rollout status deployment/roach-deployment -n default
+          # ★ 2 重 AssumeRole を防ぐため、STS 関連 env を外す
+          unset AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME
 
-    # ---------- 再学習ジョブ ----------
-    - name: Launch retrain Job
-      env:
-        IMAGE:        ${{ env.ECR_URI }}/${{ env.IMAGE_REPO }}:${{ env.TAG }}
-        MODEL_BUCKET: ${{ secrets.MODEL_BUCKET }}
-        JOB_NAME:     roach-retrain-${{ github.run_id }}
-      run: |
-        envsubst < k8s/roach-retrain-job.yaml | kubectl apply -f -
+          # Deployment のイメージ更新
+          envsubst < k8s/roach-deployment.yaml | kubectl apply -f -
 
-    - name: Wait for Job completion
-      run: |
-        kubectl wait --for=condition=complete "job/$JOB_NAME" \
-          --timeout=600s
+          # Retrain Job 起動
+          envsubst < k8s/roach-retrain-job.yaml | kubectl apply -f -
 
-    - name: Fetch Job logs
-      run: |
-        kubectl logs "job/$JOB_NAME" --all-containers=true
+          # Job 完了待ち（最大 15 分）
+          kubectl wait --for=condition=complete job/roach-retrain --timeout=900s
+
+          # Retrain ログ取得
+          kubectl logs job/roach-retrain
