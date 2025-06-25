@@ -76,7 +76,7 @@ jobs:
         env:
           ECR_URI:     ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
           TAG:         ${{ needs.build-and-push.outputs.image-tag }}
-          MODEL_BUCKET:${{ secrets.MODEL_BUCKET }}
+          MODEL_BUCKET: ${{ secrets.MODEL_BUCKET }}
         run: |
           IMAGE="$ECR_URI/e2e-ai-carla-dev:$TAG"
           export IMAGE MODEL_BUCKET
