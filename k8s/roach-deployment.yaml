@@ -20,7 +20,7 @@ spec:
         effect: NoSchedule
       containers:
       - name: roach
-        image: ${IMAGE}            # envsubst で注入
+        image: "${IMAGE}"  # envsubst で注入
         imagePullPolicy: Always
         resources:
           limits:

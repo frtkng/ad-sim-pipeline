@@ -15,7 +15,7 @@ spec:
       restartPolicy: Never
       containers:
       - name: retrain
-        image: ${IMAGE}
+        image: "${IMAGE}"
         env:
         - name: MODEL_BUCKET
           value: "${MODEL_BUCKET}"
