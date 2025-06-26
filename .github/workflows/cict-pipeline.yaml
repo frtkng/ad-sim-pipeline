@@ -82,7 +82,8 @@ jobs:
         MODEL_BUCKET: ${{ secrets.MODEL_BUCKET }}
       run: |
         echo "Deploying image: $IMAGE"
- 
+
+        
         # 二重 AssumeRole を避けるため一旦環境変数を外す
         unset AWS_ROLE_ARN AWS_WEB_IDENTITY_TOKEN_FILE AWS_ROLE_SESSION_NAME
 

@@ -62,11 +62,6 @@ module "eks" {
   cluster_endpoint_public_access_cidrs   = ["0.0.0.0/0"] # ← 会社 or 自宅の固定 IP があれば絞る
   cluster_endpoint_private_access        = true          # 既定 true のままで OK
 
-  ################################
-  # RBAC（aws-auth）を Terraform で管理
-  ################################
-  # manage_aws_auth_configmap = false # v20では削除
-
   #################################
   # EKS マネージド Node Groups
   #################################
@@ -113,4 +108,49 @@ module "eks" {
   tags = {
     Project = "E2E AI CICT"
   }
+}
+
+###############################################################################
+# 2)  aws-auth ConfigMap を管理するサブモジュール
+###############################################################################
+
+module "aws_auth" {
+  # サブディレクトリ指定は OK
+  source  = "terraform-aws-modules/eks/aws//modules/aws-auth"
+  version = "20.13.0"
+
+  # 1️⃣ 変数名を修正
+  #cluster_name = module.eks.cluster_name   # ← これも不要なので消す
+  map_roles = [                            # ← こちらだけ残す
+    {
+      rolearn  = data.aws_iam_role.cpu_node.arn
+      username = "system:node:{{EC2PrivateDNSName}}"
+      groups   = ["system:bootstrappers","system:nodes"]
+    },
+    {
+      rolearn  = data.aws_iam_role.gpu_node.arn
+      username = "system:node:{{EC2PrivateDNSName}}"
+      groups   = ["system:bootstrappers","system:nodes"]
+    },
+    {
+      rolearn  = aws_iam_role.github_actions.arn
+      username = "github-actions"
+      groups   = ["system:masters"]
+    },
+  ]
+
+  # map_users / map_accounts は不要なら書かなくて OK
+}
+
+
+
+###############################################################################
+# 既存ノードロールは data で参照
+###############################################################################
+data "aws_iam_role" "cpu_node" {
+  name = "cpu-eks-node-group-20250617233425319200000001"
+}
+
+data "aws_iam_role" "gpu_node" {
+  name = "gpu-eks-node-group-20250617035606257100000001"
 }
