@@ -119,9 +119,13 @@ module "aws_auth" {
   source  = "terraform-aws-modules/eks/aws//modules/aws-auth"
   version = "20.13.0"
 
+  providers = {
+    kubernetes = kubernetes.eks
+  }
+
   # 1️⃣ 変数名を修正
-  #cluster_name = module.eks.cluster_name   # ← これも不要なので消す
-  map_roles = [                            # ← こちらだけ残す
+  #cluster_name = module.eks.cluster_name   
+  map_roles = [                          
     {
       rolearn  = data.aws_iam_role.cpu_node.arn
       username = "system:node:{{EC2PrivateDNSName}}"
