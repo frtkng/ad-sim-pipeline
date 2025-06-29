@@ -63,6 +63,12 @@ jobs:
     steps:
     - uses: actions/checkout@v4
 
+    # 0) kubectl インストール
+    - uses: azure/setup-kubectl@v3
+        with:
+          version: v1.30.1   # EKS 1.30 に合わせる
+          
+    # 1) AWS 認証
     - name: Configure AWS credentials
       uses: aws-actions/configure-aws-credentials@v2
       with:
