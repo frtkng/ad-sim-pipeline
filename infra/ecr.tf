@@ -2,15 +2,15 @@
 # Amazon ECR – CARLA 用
 ##############################
 resource "aws_ecr_repository" "carla" {
-  name                 = "e2e-ai-carla-${var.env}"   # <- リポジトリ名
+  name                 = "e2e-ai-carla-${var.env}" # <- リポジトリ名
   image_tag_mutability = "MUTABLE"
 
   image_scanning_configuration {
-    scan_on_push = true           # 脆弱性スキャンを自動実行
+    scan_on_push = true # 脆弱性スキャンを自動実行
   }
 
   encryption_configuration {
-    encryption_type = "AES256"    # デフォルト暗号化
+    encryption_type = "AES256" # デフォルト暗号化
   }
 
   tags = {

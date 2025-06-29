@@ -70,8 +70,6 @@ aws dynamodb create-table \
 echo "[INFO] Initializing Terraform backend and migrating state..."
 terraform init \
   -reconfigure \
-  -force-copy \
-  -upgrade \
   -input=false
 
 # Terraform適用（ユーザー確認を省略）

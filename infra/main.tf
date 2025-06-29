@@ -58,9 +58,9 @@ module "eks" {
   subnet_ids = local.subnets
 
   # --- API エンドポイント公開設定 ------------------
-  cluster_endpoint_public_access         = true
-  cluster_endpoint_public_access_cidrs   = ["0.0.0.0/0"] # ← 会社 or 自宅の固定 IP があれば絞る
-  cluster_endpoint_private_access        = true          # 既定 true のままで OK
+  cluster_endpoint_public_access       = true
+  cluster_endpoint_public_access_cidrs = ["0.0.0.0/0"] # ← 会社 or 自宅の固定 IP があれば絞る
+  cluster_endpoint_private_access      = true          # 既定 true のままで OK
 
   #################################
   # EKS マネージド Node Groups
@@ -68,12 +68,12 @@ module "eks" {
   eks_managed_node_groups = {
     # ── CPU ノード（システム & 軽量ジョブ）
     cpu = {
-      node_group_name = "cpu" 
-      instance_types = ["t3.small"]   # 1 vCPU / 4 GiB
-      ami_type       = "AL2023_x86_64_STANDARD"
-      min_size       = 1
-      max_size       = 1
-      desired_size   = 1
+      node_group_name = "cpu"
+      instance_types  = ["t3.small"] # 1 vCPU / 4 GiB
+      ami_type        = "AL2023_x86_64_STANDARD"
+      min_size        = 1
+      max_size        = 1
+      desired_size    = 1
 
       labels = {
         role = "cpu"
@@ -85,12 +85,12 @@ module "eks" {
     # ── GPU ノード（CARLA 専用）
     gpu = {
       node_group_name = "gpu"
-      subnet_ids     = [local.subnets[0]] 
-      instance_types = ["g4dn.xlarge"]   # A10G ×1 / 4 vCPU
-      ami_type       = "AL2023_x86_64_NVIDIA"
-      min_size       = 1
-      max_size       = 1
-      desired_size   = 1
+      subnet_ids      = [local.subnets[0]]
+      instance_types  = ["g4dn.xlarge"] # A10G ×1 / 4 vCPU
+      ami_type        = "AL2023_x86_64_NVIDIA"
+      min_size        = 1
+      max_size        = 1
+      desired_size    = 1
 
       labels = {
         role = "gpu"
@@ -105,56 +105,48 @@ module "eks" {
     }
   }
 
+  # ★ aws-auth は自分で管理するので false のまま
+  # manage_aws_auth_configmap = false #v20では不要。いれるとエラー。
+
   tags = {
     Project = "E2E AI CICT"
   }
 }
 
 ###############################################################################
-# 2)  aws-auth ConfigMap を管理するサブモジュール
+# 2)  aws-auth ConfigMap 
 ###############################################################################
 
-module "aws_auth" {
-  # サブディレクトリ指定は OK
-  source  = "terraform-aws-modules/eks/aws//modules/aws-auth"
-  version = "20.13.0"
-
-  providers = {
-    kubernetes = kubernetes.eks
+#resource "kubernetes_config_map_v1_data" "aws_auth" { #v2.37 系 Kubernetes プロバイダーでは非対応
+resource "kubernetes_config_map_v1" "aws_auth" {
+  metadata {
+    name      = "aws-auth"
+    namespace = "kube-system"
   }
 
-  # 1️⃣ 変数名を修正
-  #cluster_name = module.eks.cluster_name   
-  map_roles = [                          
-    {
-      rolearn  = data.aws_iam_role.cpu_node.arn
-      username = "system:node:{{EC2PrivateDNSName}}"
-      groups   = ["system:bootstrappers","system:nodes"]
-    },
-    {
-      rolearn  = data.aws_iam_role.gpu_node.arn
-      username = "system:node:{{EC2PrivateDNSName}}"
-      groups   = ["system:bootstrappers","system:nodes"]
-    },
-    {
-      rolearn  = aws_iam_role.github_actions.arn
-      username = "github-actions"
-      groups   = ["system:masters"]
-    },
-  ]
+  data = {
+    mapRoles = yamlencode([
+      # GPU ノード
+      {
+        rolearn  = module.eks.eks_managed_node_groups["gpu"].iam_role_arn
+        username = "system:node:{{EC2PrivateDNSName}}"
+        groups   = ["system:bootstrappers", "system:nodes"]
+      },
+      # CPU ノード
+      {
+        rolearn  = module.eks.eks_managed_node_groups["cpu"].iam_role_arn
+        username = "system:node:{{EC2PrivateDNSName}}"
+        groups   = ["system:bootstrappers", "system:nodes"]
+      },
+      # GitHub Actions ロール
+      {
+        rolearn  = aws_iam_role.github_actions.arn
+        username = "github-actions"
+        groups   = ["system:masters"] # 必要に応じて絞る
+      }
+    ])
+  }
 
-  # map_users / map_accounts は不要なら書かなくて OK
-}
-
-
-
-###############################################################################
-# 既存ノードロールは data で参照
-###############################################################################
-data "aws_iam_role" "cpu_node" {
-  name = "cpu-eks-node-group-20250617233425319200000001"
-}
-
-data "aws_iam_role" "gpu_node" {
-  name = "gpu-eks-node-group-20250617035606257100000001"
+  provider   = kubernetes.eks
+  depends_on = [module.eks] # ← 実行順序担保
 }

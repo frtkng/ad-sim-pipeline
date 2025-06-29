@@ -47,8 +47,8 @@ resource "aws_iam_role_policy_attachment" "github_actions_managed" {
 # 4. EC2 キーペア操作を許可するインラインポリシー
 data "aws_iam_policy_document" "ci_ec2_keypair" {
   statement {
-    sid     = "AllowCreateAndDeleteKeyPair"
-    effect  = "Allow"
+    sid    = "AllowCreateAndDeleteKeyPair"
+    effect = "Allow"
     actions = [
       "ec2:CreateKeyPair",
       "ec2:DeleteKeyPair",
@@ -67,8 +67,8 @@ resource "aws_iam_role_policy" "ci_ec2_keypair" {
 # ──────────── Terraform Lock 用 DynamoDB 操作権限 ────────────
 data "aws_iam_policy_document" "ci_dynamodb_lock" {
   statement {
-    sid     = "AllowDynamoDBLockTableAccess"
-    effect  = "Allow"
+    sid    = "AllowDynamoDBLockTableAccess"
+    effect = "Allow"
     actions = [
       "dynamodb:DescribeTable",
       "dynamodb:GetItem",
@@ -94,8 +94,8 @@ resource "aws_iam_role_policy" "ci_dynamodb_lock" {
 
 data "aws_iam_policy_document" "ci_terraform_read" {
   statement {
-    sid     = "AllowTerraformDataReads"
-    effect  = "Allow"
+    sid    = "AllowTerraformDataReads"
+    effect = "Allow"
     actions = [
       # IAM / OIDC
       "iam:GetOpenIDConnectProvider",
@@ -111,7 +111,7 @@ data "aws_iam_policy_document" "ci_terraform_read" {
       "eks:DescribeCluster",
       "eks:DescribeNodegroup",
       "eks:ListNodegroups",
-      
+
 
       # EC2 / VPC
       "ec2:DescribeVpcs",
@@ -139,7 +139,7 @@ data "aws_iam_policy_document" "ci_terraform_read" {
       "kms:ListKeys",
       "kms:ListAliases",
       "kms:GetKeyRotationStatus",
-      "kms:ListResourceTags", 
+      "kms:ListResourceTags",
       "kms:PutKeyPolicy",
     ]
     resources = ["*"]
@@ -155,23 +155,4 @@ resource "aws_iam_role_policy" "ci_terraform_read" {
 locals {
   # EKS モジュールからクラスター名など取得
   eks_cluster_name = module.eks.cluster_name
-}
-
-resource "kubernetes_config_map" "aws_auth" {
-  provider = kubernetes.eks  # ← module.eks が生成した provider alias を使う
-  metadata {
-    name      = "aws-auth"
-    namespace = "kube-system"
-  }
-
-  # 既存 mapRoles に GitHubActions ロールをプラス
-  data = {
-    mapRoles = yamlencode([
-      {
-        rolearn  = aws_iam_role.github_actions.arn
-        username = "github-actions"
-        groups   = ["system:masters"]   # 管理者権限
-      }
-    ])
-  }
 }

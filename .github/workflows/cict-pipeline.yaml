@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=https://json.schemastore.org/github-workflow.json
 name: ♾️ CICT Pipeline
 
 on:
@@ -14,7 +15,7 @@ env:                          # 共通定数
   IMAGE_REPO:   e2e-ai-carla-dev          # ECR リポジトリ名
   TAG:          roach-${{ github.sha }}   # ← 2 ジョブ共通で固定
 
-# ───────────────────────── Build & Push ─────────────────────────
+# ───────────────────────── Build & Push ─────────────────────────P
 jobs:
   build-and-push:
     runs-on: ubuntu-latest

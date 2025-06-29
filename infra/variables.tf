@@ -10,7 +10,7 @@ variable "aws_account_id" {
   default     = "676206918971"
 }
 
-variable "env"        { default = "dev" }
+variable "env" { default = "dev" }
 variable "ec2_key" {
   description = "Name of the EC2 key pair to use for the EKS nodes"
   type        = string
