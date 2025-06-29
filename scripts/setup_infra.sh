@@ -6,39 +6,51 @@ set -euo pipefail
 #export AWS_PROFILE
 #echo "[INFO] Using AWS_PROFILE: $AWS_PROFILE"
 
-# SSHキー名と保存先ディレクトリ
-KEY_NAME="e2e-ai-dev-key"
-SSH_DIR="$HOME/.ssh"
-KEY_PATH="$SSH_DIR/${KEY_NAME}.pem"
-
-# SSHディレクトリの存在と書き込み権限を確認／作成
-if [ ! -d "$SSH_DIR" ]; then
-  mkdir -p "$SSH_DIR"
-  chmod 700 "$SSH_DIR"
-elif [ ! -w "$SSH_DIR" ]; then
-  echo "[ERROR] $SSH_DIR is not writable. Please run 'sudo chown -R \"$USER\":\"$USER\" $SSH_DIR' and 'chmod 700 $SSH_DIR'"
-  exit 1
-fi
-
-# EC2キーペアの存在をチェック、なければ作成
-if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" --region ap-northeast-1 >/dev/null 2>&1; then
-  echo "[INFO] Creating EC2 key pair: $KEY_NAME"
-  aws ec2 create-key-pair \
-    --key-name "$KEY_NAME" \
-    --query 'KeyMaterial' \
-    --output text \
-    --region ap-northeast-1 \
-  > "$KEY_PATH"
-  chmod 400 "$KEY_PATH"
-  echo "[INFO] Private key saved to $KEY_PATH"
+# ────────────────────────────────────────────────
+# 0) GitHub Actions 判定
+#    - GITHUB_ACTIONS 環境変数は Actions ランナーで自動付与
+# ────────────────────────────────────────────────
+if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+  echo "[INFO] Detected GitHub Actions runner – skipping local SSH key handling."
 else
-  echo "[INFO] EC2 key pair '$KEY_NAME' already exists, skipping."
+  # ──────────────────────────────────────────────
+  # 1)  ローカル実行時のみ SSH キーペアを管理
+  # ──────────────────────────────────────────────
+
+  # SSHキー名と保存先ディレクトリ
+  KEY_NAME="e2e-ai-dev-key"
+  SSH_DIR="$HOME/.ssh"
+  KEY_PATH="$SSH_DIR/${KEY_NAME}.pem"
+
+  # SSHディレクトリの存在と書き込み権限を確認／作成
+  if [ ! -d "$SSH_DIR" ]; then
+    mkdir -p "$SSH_DIR"
+    chmod 700 "$SSH_DIR"
+  elif [ ! -w "$SSH_DIR" ]; then
+    echo "[ERROR] $SSH_DIR is not writable. Please run 'sudo chown -R \"$USER\":\"$USER\" $SSH_DIR' and 'chmod 700 $SSH_DIR'"
+    exit 1
+  fi
+
+  # EC2キーペアの存在をチェック、なければ作成
+  if ! aws ec2 describe-key-pairs --key-names "$KEY_NAME" --region ap-northeast-1 >/dev/null 2>&1; then
+    echo "[INFO] Creating EC2 key pair: $KEY_NAME"
+    aws ec2 create-key-pair \
+      --key-name "$KEY_NAME" \
+      --query 'KeyMaterial' \
+      --output text \
+      --region ap-northeast-1 \
+    > "$KEY_PATH"
+    chmod 400 "$KEY_PATH"
+    echo "[INFO] Private key saved to $KEY_PATH"
+  else
+    echo "[INFO] EC2 key pair '$KEY_NAME' already exists, skipping."
+  fi
 fi
 
 # スクリプトの位置から infra ディレクトリへ移動
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-TERRAFORM_DIR="$SCRIPT_DIR/../infra"
-cd "$TERRAFORM_DIR"
+ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+ TERRAFORM_DIR="$SCRIPT_DIR/../infra"
+ cd "$TERRAFORM_DIR"
 
 # ────────────────────────────────────────────────
 # Terraform backend 用 S3 バケット作成（存在しなければ）
