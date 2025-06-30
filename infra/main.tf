@@ -71,7 +71,7 @@ module "eks" {
       node_group_name = "cpu"
       instance_types  = ["t3.small"] # 1 vCPU / 4 GiB
       ami_type        = "AL2023_x86_64_STANDARD"
-      min_size        = 1
+      min_size        = 0
       max_size        = 1
       desired_size    = 1
 
@@ -88,7 +88,7 @@ module "eks" {
       subnet_ids      = [local.subnets[0]]
       instance_types  = ["g4dn.xlarge"] # A10G ×1 / 4 vCPU
       ami_type        = "AL2023_x86_64_NVIDIA"
-      min_size        = 1
+      min_size        = 0
       max_size        = 1
       desired_size    = 1
 
