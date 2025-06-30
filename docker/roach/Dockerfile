@@ -5,11 +5,16 @@ USER root
 
 # --- 2. Python 3.8 + 必要なツールの導入 ---
 RUN apt-get update && \
-    apt-get install -y python3.8 python3.8-dev python3.8-distutils git curl build-essential && \
+    apt-get install -y \
+      python3.8 python3.8-dev python3.8-distutils git curl build-essential \
+      libsdl1.2-dev libfreetype6-dev pkg-config \
+      libsdl-image1.2-dev libsdl-mixer1.2-dev libsdl-ttf2.0-dev \
+      libjpeg-dev libpng-dev libportmidi-dev && \
     rm -rf /var/lib/apt/lists/*
 
-# --- 3. pip for Python3.8 ---
-RUN curl -sS https://bootstrap.pypa.io/get-pip.py | python3.8
+# --- 3. pip for Python3.8 (正しいURLに修正) ---
+RUN curl -sS https://bootstrap.pypa.io/pip/3.8/get-pip.py | python3.8 && \
+    pip3 install --no-cache-dir --upgrade "pip<24"
 
 # python3/pip3 コマンドを3.8に揃える
 RUN update-alternatives --install /usr/bin/python3 python3 /usr/bin/python3.8 1 && \
@@ -22,8 +27,9 @@ RUN git clone --recursive https://github.com/zhejz/carla-roach.git /workspace/ro
 WORKDIR /workspace/roach
 
 # --- 5. pip依存（environment.yml内のpip部分のみ）を一括インストール ---
-RUN awk 'p{ if($0~/^ *-/){gsub("^ *- *",""); print}else exit} /pip:/{p=1}' environment.yml | xargs -r pip3 install --no-cache-dir
-
+RUN awk 'p{ if($0~/^ *-/){gsub("^ *- *",""); print}else exit} /pip:/{p=1}' environment.yml \
+  | xargs -r pip3 install --no-cache-dir --timeout=120
+  
 # --- 6. CUDA-11.3対応 PyTorch（Carlaイメージに合わせる） ---
 RUN pip3 install --no-cache-dir torch==1.10.2+cu113 torchvision==0.11.3+cu113 -f https://download.pytorch.org/whl/torch_stable.html
 
